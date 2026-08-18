@@ -314,15 +314,22 @@ impl CdpContext {
     }
 
     pub fn get_session_page(&self, session_id: &Option<String>) -> Option<&Page> {
-        let page_id = session_id.as_ref().and_then(|sid| self.sessions.get(sid))?;
-        self.get_page(page_id)
+        if let Some(page_id) = session_id.as_ref().and_then(|sid| self.sessions.get(sid)) {
+            return self.get_page(page_id);
+        }
+        // No session attached (direct websocket connection via /devtools/page/<id>
+        // without Target.attachToTarget). Chrome auto-creates a session in this
+        // case; fall back to the first page so Runtime.evaluate and friends work
+        // out of the box (fixes #680).
+        self.pages.first()
     }
 
     pub fn get_session_page_mut(&mut self, session_id: &Option<String>) -> Option<&mut Page> {
         let page_id = session_id
             .as_ref()
             .and_then(|sid| self.sessions.get(sid))
-            .cloned()?;
+            .cloned()
+            .or_else(|| self.pages.first().map(|p| p.id.clone()))?;
 
         let target_has_js = self.pages.iter().any(|p| p.id == page_id && p.has_js());
 
