@@ -142,3 +142,67 @@ async fn runtime_evaluate_returns_real_values_without_session_attach() {
         "the no-session Page.navigate must have loaded the served page"
     );
 }
+
+/// Regression test for #680: Runtime.evaluate with a data: URL and no session
+/// must return the page's real values, not a 'No page' error.
+#[tokio::test(flavor = "current_thread")]
+async fn runtime_evaluate_data_url_without_session() {
+    std::env::set_var("OBSCURA_ALLOW_PRIVATE_NETWORK", "1");
+    let mut ctx = CdpContext::new();
+    ctx.create_page();
+
+    // Navigate to a data: URL with no session attached.
+    let data_url = "data:text/html,<h1>hello</h1>";
+    cdp(
+        &mut ctx,
+        1,
+        "Page.navigate",
+        json!({"url": data_url}),
+        None,
+    )
+    .await;
+
+    // "1 + 1" must return 2, not a 'No page' error.
+    let sum = cdp(
+        &mut ctx,
+        2,
+        "Runtime.evaluate",
+        json!({"expression": "1 + 1", "returnByValue": true}),
+        None,
+    )
+    .await;
+    assert_eq!(
+        sum["result"]["value"].as_f64(),
+        Some(2.0),
+        "Runtime.evaluate('1+1') must return 2 without a session"
+    );
+
+    // document.title must be a string (empty for data: URLs), not an error.
+    let title = cdp(
+        &mut ctx,
+        3,
+        "Runtime.evaluate",
+        json!({"expression": "document.title", "returnByValue": true}),
+        None,
+    )
+    .await;
+    assert!(
+        title["result"]["value"].is_string(),
+        "Runtime.evaluate('document.title') must return a string, got {:?}",
+        title["result"]
+    );
+
+    // DOM query on the data: URL page.
+    let h1 = cdp(
+        &mut ctx,
+        4,
+        "Runtime.evaluate",
+        json!({"expression": "document.querySelector('h1').textContent", "returnByValue": true}),
+        None,
+    )
+    .await;
+    assert_eq!(
+        h1["result"]["value"], "hello",
+        "Runtime.evaluate on a data: URL page must return real DOM content"
+    );
+}
