@@ -108,7 +108,19 @@ pub async fn handle(
                 })
                 .unwrap_or_default();
 
-            if let Some(page) = ctx.get_session_page_mut(session_id) {
+            // With no session the patterns apply to every page: blocked URL
+            // patterns are a global network setting. Resolve the page from the
+            // explicit session mapping only, so the session-less first-page
+            // fallback added for issue #680 does not silently narrow the block
+            // to one page.
+            let mapped = session_id
+                .as_ref()
+                .and_then(|sid| ctx.sessions.get(sid))
+                .cloned();
+            if let Some(page_id) = mapped {
+                let page = ctx
+                    .get_page_mut(&page_id)
+                    .expect("a session must map to a live page");
                 page.set_blocked_urls(patterns);
             } else {
                 for page in &mut ctx.pages {
